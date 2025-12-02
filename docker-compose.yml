@@ -1,0 +1,21 @@
+services:
+  subenum:
+    build: .
+    container_name: subenum
+    restart: unless-stopped
+    environment:
+    # https://paste.rs/tgH2Q.txt
+      TARGETS: ${TARGETS}
+      SCHEDULE: ${SCHEDULE}
+      GITHUB_ACCESS_TOKEN: ${GITHUB_ACCESS_TOKEN}
+      DISCORD_WEBHOOK_URL: ${DISCORD_WEBHOOK_URL}
+      CHAOS_API_KEY: ${CHAOS_API_KEY}
+      DEAD_DOMAIN_DAYS: ${DEAD_DOMAIN_DAYS}
+    volumes:
+      - ./output:/app/output
+    networks:
+      - subenum-network
+
+networks:
+  subenum-network:
+    driver: bridge
