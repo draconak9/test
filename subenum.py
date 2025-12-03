@@ -20,25 +20,31 @@ current_log_file = None
 banner_printed = False
 shutdown_requested = False
 
+
 def signal_handler(sig, frame):
     global shutdown_requested
     shutdown_requested = True
     log("[warning] Shutdown requested, finishing current operation...")
 
+
 signal.signal(signal.SIGINT, signal_handler)
 signal.signal(signal.SIGTERM, signal_handler)
+
 
 def print_banner():
     global banner_printed
     if not banner_printed:
-        print(r"""
+        print(
+            r"""
            _
  ___ _   _| |__   ___ _ __  _   _ _ __ ___
 / __| | | | '_ \ / _ \ '_ \| | | | '_ ` _ \
 \__ \ |_| | |_) |  __/ | | | |_| | | | | | |
 |___/\__,_|_.__/ \___|_| |_|\__,_|_| |_| |_|
-""")
+"""
+        )
         banner_printed = True
+
 
 def log(message):
     timestamp = f"[{datetime.now():%H:%M:%S}]"
@@ -51,19 +57,28 @@ def log(message):
         except Exception as e:
             print(f"[error] Failed to write log: {e}")
 
+
 def run_cmd(cmd, timeout=None):
     try:
-        return subprocess.run(cmd, shell=False, capture_output=True, text=True, check=True, timeout=timeout).stdout
+        return subprocess.run(
+            cmd,
+            shell=False,
+            capture_output=True,
+            text=True,
+            check=True,
+            timeout=timeout,
+        ).stdout
     except subprocess.CalledProcessError as e:
         raise Exception(f"Command failed with code {e.returncode}")
     except subprocess.TimeoutExpired:
         raise Exception("Command timed out")
 
+
 def validate_environment():
     required = {
         "TARGETS": TARGETS,
         "DISCORD_WEBHOOK_URL": DISCORD_WEBHOOK_URL,
-        "GITHUB_ACCESS_TOKEN": GITHUB_ACCESS_TOKEN
+        "GITHUB_ACCESS_TOKEN": GITHUB_ACCESS_TOKEN,
     }
 
     missing = [k for k, v in required.items() if not v]
@@ -73,6 +88,7 @@ def validate_environment():
 
     if not CHAOS_API_KEY:
         log("[warning] CHAOS_API_KEY not set, chaos will be skipped")
+
 
 def fetch_targets():
     try:
@@ -85,21 +101,36 @@ def fetch_targets():
         log(f"[error] Failed to fetch targets: {e}")
         raise
 
+
 def enumerate_subdomains(targets):
     targets_file = "/tmp/all_targets.txt"
     with open(targets_file, "w") as f:
         f.write("\n".join(targets))
 
     commands = {
-        "subfinder": ["subfinder", "-silent", "-dL", targets_file, "-sources",
-                     "virustotal,bevigil,builtwith,certspotter,chaos,cloudflare,digitalyama,dnsdumpster,shodan,netlas,urlscan,github,zoomeyeapi,anubis,commoncrawl,crtsh,digitorus,hackertarget,quake,sitedossier,threatcrowd,waybackarchive,hudsonrock",
-                     "-pc", "provider-config.yaml"],
+        "subfinder": [
+            "subfinder",
+            "-silent",
+            "-dL",
+            targets_file,
+            "-sources",
+            "virustotal,bevigil,builtwith,certspotter,chaos,cloudflare,digitalyama,dnsdumpster,shodan,netlas,urlscan,github,zoomeyeapi,anubis,commoncrawl,crtsh,digitorus,hackertarget,quake,sitedossier,threatcrowd,waybackarchive,hudsonrock",
+            "-pc",
+            "provider-config.yaml",
+        ],
         "assetfinder": ["assetfinder", "-subs-only"],
         "findomain": ["findomain", "-f", targets_file, "--quiet"],
     }
 
     if CHAOS_API_KEY:
-        commands["chaos"] = ["chaos", "-silent", "-key", CHAOS_API_KEY, "-dL", targets_file]
+        commands["chaos"] = [
+            "chaos",
+            "-silent",
+            "-key",
+            CHAOS_API_KEY,
+            "-dL",
+            targets_file,
+        ]
 
     all_domains = set()
 
@@ -107,10 +138,14 @@ def enumerate_subdomains(targets):
         try:
             if tool == "assetfinder":
                 with open(targets_file, "r") as f:
-                    result = subprocess.run(cmd, stdin=f, capture_output=True, text=True, timeout=3600)
+                    result = subprocess.run(
+                        cmd, stdin=f, capture_output=True, text=True, timeout=3600
+                    )
                 output = result.stdout
             else:
-                result = subprocess.run(cmd, capture_output=True, text=True, timeout=3600)
+                result = subprocess.run(
+                    cmd, capture_output=True, text=True, timeout=3600
+                )
                 output = result.stdout
 
             domains = [d.lstrip("*.") for d in output.strip().split("\n") if d]
@@ -123,7 +158,9 @@ def enumerate_subdomains(targets):
             return tool, str(e)
 
     with ThreadPoolExecutor(max_workers=4) as executor:
-        futures = {executor.submit(run_tool, tool, cmd): tool for tool, cmd in commands.items()}
+        futures = {
+            executor.submit(run_tool, tool, cmd): tool for tool, cmd in commands.items()
+        }
 
         for future in as_completed(futures):
             tool, result = future.result()
@@ -137,6 +174,7 @@ def enumerate_subdomains(targets):
     log(f"[info] Total subdomains: {len(all_domains)}")
     return all_domains
 
+
 def dns_filter(domains):
     if not domains:
         return set()
@@ -144,8 +182,12 @@ def dns_filter(domains):
     with open(temp_file, "w") as f:
         f.write("\n".join(domains))
     try:
-        result = subprocess.run(["dnsx", "-l", temp_file, "-silent", "-retry", "2", "-t", "100"],
-                              capture_output=True, text=True, timeout=3600)
+        result = subprocess.run(
+            ["dnsx", "-l", temp_file, "-silent", "-retry", "2", "-t", "100"],
+            capture_output=True,
+            text=True,
+            timeout=3600,
+        )
         resolved = {line.strip() for line in result.stdout.strip().split("\n") if line}
         os.remove(temp_file)
         return resolved
@@ -159,6 +201,7 @@ def dns_filter(domains):
         if os.path.exists(temp_file):
             os.remove(temp_file)
         return domains
+
 
 def batched_httpx_probe(domains, batch_size=1000, rate_limit=15):
     if not domains:
@@ -174,19 +217,41 @@ def batched_httpx_probe(domains, batch_size=1000, rate_limit=15):
             log("[httpx] Stopping due to shutdown request")
             break
 
-        batch = domain_list[i:i + batch_size]
+        batch = domain_list[i : i + batch_size]
         batch_num = (i // batch_size) + 1
-        log(f"[httpx] Processing batch {batch_num}/{total_batches} ({len(batch)} hosts)")
+        log(
+            f"[httpx] Processing batch {batch_num}/{total_batches} ({len(batch)} hosts)"
+        )
         batch_file = f"/tmp/httpx_batch_{batch_num}.txt"
         with open(batch_file, "w") as f:
             f.write("\n".join(batch))
         try:
-            result = subprocess.run(["httpx", "-l", batch_file, "-silent", "-nc", "-rate-limit",
-                                   str(rate_limit), "-timeout", "10", "-retries", "2"],
-                                  capture_output=True, text=True, timeout=3600)
+            result = subprocess.run(
+                [
+                    "httpx",
+                    "-l",
+                    batch_file,
+                    "-silent",
+                    "-nc",
+                    "-rate-limit",
+                    str(rate_limit),
+                    "-timeout",
+                    "10",
+                    "-retries",
+                    "2",
+                ],
+                capture_output=True,
+                text=True,
+                timeout=3600,
+            )
             for line in result.stdout.strip().split("\n"):
                 if line:
-                    clean = line.replace("https://", "").replace("http://", "").split("/")[0].split(":")[0]
+                    clean = (
+                        line.replace("https://", "")
+                        .replace("http://", "")
+                        .split("/")[0]
+                        .split(":")[0]
+                    )
                     all_resolved[clean] = line.strip()
         except Exception as e:
             log(f"[httpx] Batch {batch_num} failed: {str(e)}")
@@ -195,6 +260,7 @@ def batched_httpx_probe(domains, batch_size=1000, rate_limit=15):
                 os.remove(batch_file)
 
     return all_resolved
+
 
 def probe_domains(domains):
     log(f"[dnsx] Resolving {len(domains)} subdomains...")
@@ -207,6 +273,7 @@ def probe_domains(domains):
     log(f"[httpx] Found {len(resolved_http)} responsive hosts!")
     return resolved_http
 
+
 def load_master_list():
     filepath = "output/subdomains-all.txt"
     if os.path.exists(filepath):
@@ -218,6 +285,7 @@ def load_master_list():
             return set()
     return set()
 
+
 def save_master_list(domains):
     os.makedirs("output", exist_ok=True)
     filepath = "output/subdomains-all.txt"
@@ -228,7 +296,7 @@ def save_master_list(domains):
             f.write("\n".join(sorted(domains)))
         os.replace(temp_filepath, filepath)
 
-        backup_filepath = f"{filepath}.backup"
+        backup_filepath = "output/subdomains-all.bak"
         if os.path.exists(filepath):
             shutil.copy2(filepath, backup_filepath)
     except Exception as e:
@@ -236,6 +304,7 @@ def save_master_list(domains):
         if os.path.exists(temp_filepath):
             os.remove(temp_filepath)
         raise
+
 
 def load_dead_domains():
     filepath = "output/subdomains-dead.txt"
@@ -258,6 +327,7 @@ def load_dead_domains():
             return {}
     return {}
 
+
 def save_dead_domains(domains_dict):
     os.makedirs("output", exist_ok=True)
     filepath = "output/subdomains-dead.txt"
@@ -270,7 +340,7 @@ def save_dead_domains(domains_dict):
                 f.write(f"{domain}|{died_at}\n")
         os.replace(temp_filepath, filepath)
 
-        backup_filepath = f"{filepath}.backup"
+        backup_filepath = "output/subdomains-dead.bak"
         if os.path.exists(filepath):
             shutil.copy2(filepath, backup_filepath)
     except Exception as e:
@@ -278,6 +348,7 @@ def save_dead_domains(domains_dict):
         if os.path.exists(temp_filepath):
             os.remove(temp_filepath)
         raise
+
 
 def get_domains_to_resurrect(dead_domains):
     now = datetime.now()
@@ -290,23 +361,28 @@ def get_domains_to_resurrect(dead_domains):
 
     if old_dead:
         sample_size = max(1, len(old_dead) // 5)
-        sampled_old = random.sample(list(old_dead.keys()), k=min(sample_size, len(old_dead)))
+        sampled_old = random.sample(
+            list(old_dead.keys()), k=min(sample_size, len(old_dead))
+        )
         to_check.update(sampled_old)
-        log(f"[info] Checking {len(recent_dead)} recent, {len(sampled_old)} dead subdomains")
+        log(
+            f"[info] Checking {len(recent_dead)} recent, {len(sampled_old)} dead subdomains"
+        )
 
     return to_check
+
 
 def upload_to_gist(content, filename, retries=3, backoff=5):
     if not GITHUB_ACCESS_TOKEN:
         log("[warning] GitHub token not configured, skipping upload")
         return None
 
-    content_size = len(content.encode('utf-8'))
+    content_size = len(content.encode("utf-8"))
 
     payload = {
         "files": {filename: {"content": content}},
         "public": False,
-        "description": f"Subdomain scan results - {filename}"
+        "description": f"Subdomain scan results - {filename}",
     }
 
     for attempt in range(retries):
@@ -320,10 +396,10 @@ def upload_to_gist(content, filename, retries=3, backoff=5):
                 "https://api.github.com/gists",
                 headers={
                     "Authorization": f"Bearer {GITHUB_ACCESS_TOKEN}",
-                    "Accept": "application/vnd.github.v3+json"
+                    "Accept": "application/vnd.github.v3+json",
                 },
                 json=payload,
-                timeout=30
+                timeout=30,
             )
 
             if response.status_code == 201:
@@ -341,6 +417,7 @@ def upload_to_gist(content, filename, retries=3, backoff=5):
             time.sleep(backoff * (attempt + 1))
 
     return None
+
 
 def send_notification(new_domains, resolved_domains, timestamp, domains_file, log_file):
     logs_content = None
@@ -391,7 +468,11 @@ def send_notification(new_domains, resolved_domains, timestamp, domains_file, lo
         gist_url = None
 
     time.sleep(2)
-    logs_gist_url = upload_to_gist(logs_content, os.path.basename(log_file)) if logs_content else None
+    logs_gist_url = (
+        upload_to_gist(logs_content, os.path.basename(log_file))
+        if logs_content
+        else None
+    )
 
     fields = [
         {"name": "📊 Total", "value": str(len(new_domains)), "inline": True},
@@ -400,22 +481,40 @@ def send_notification(new_domains, resolved_domains, timestamp, domains_file, lo
         {"name": "📅 Time", "value": timestamp, "inline": True},
     ]
     if gist_url:
-        fields.append({"name": "🔎 Results", "value": f"[View]({gist_url})", "inline": True})
+        fields.append(
+            {"name": "🔎 Results", "value": f"[View]({gist_url})", "inline": True}
+        )
     if logs_gist_url:
-        fields.append({"name": "📝 Logs", "value": f"[View]({logs_gist_url})", "inline": True})
-    fields.append({"name": "🌐 Domains", "value": f"```\n{domains_text}\n```", "inline": False})
+        fields.append(
+            {"name": "📝 Logs", "value": f"[View]({logs_gist_url})", "inline": True}
+        )
+    fields.append(
+        {"name": "🌐 Domains", "value": f"```\n{domains_text}\n```", "inline": False}
+    )
 
-    payload = {"embeds": [{"title": "🔍 SUBENUM SCAN RESULTS", "color": 5814783, "fields": fields, "footer": {"text": "⚡ Subenum"}}]}
+    payload = {
+        "embeds": [
+            {
+                "title": "🔍 SUBENUM SCAN RESULTS",
+                "color": 5814783,
+                "fields": fields,
+                "footer": {"text": "⚡ Subenum"},
+            }
+        ]
+    }
 
     for attempt in range(3):
         try:
-            requests.post(DISCORD_WEBHOOK_URL, json=payload, timeout=30).raise_for_status()
+            requests.post(
+                DISCORD_WEBHOOK_URL, json=payload, timeout=30
+            ).raise_for_status()
             log("[discord] Notification sent!")
             return
         except Exception as e:
             log(f"[discord] {str(e)}")
             if attempt < 2:
                 time.sleep(5)
+
 
 def get_next_run():
     times = [t.strip() for t in SCHEDULE.split(",")]
@@ -437,12 +536,14 @@ def get_next_run():
     minutes = int((delta.total_seconds() % 3600) // 60)
     return next_dt.strftime("%H:%M"), hours, minutes
 
+
 def print_schedule():
     next_time, h, m = get_next_run()
     log("=" * 60)
     log(f"[info] Scan schedule: {SCHEDULE}")
     log(f"[info] Next scan at {next_time} ({h}h {m}m remaining)")
     log("=" * 60)
+
 
 def run_full_scan():
     global current_log_file
@@ -515,7 +616,13 @@ def run_full_scan():
             log(f"[info] Scan completed in {elapsed:.2f} minutes")
 
             time.sleep(30)
-            send_notification(sorted(new_domains), resolved_domains, timestamp.replace("_", " "), domains_file, current_log_file)
+            send_notification(
+                sorted(new_domains),
+                resolved_domains,
+                timestamp.replace("_", " "),
+                domains_file,
+                current_log_file,
+            )
         else:
             log("[info] No new subdomains discovered!")
     except Exception as e:
@@ -524,6 +631,7 @@ def run_full_scan():
     current_log_file = None
     if not shutdown_requested:
         print_schedule()
+
 
 def main():
     print_banner()
@@ -544,6 +652,7 @@ def main():
         time.sleep(25)
 
     log("[info] Shutdown complete")
+
 
 if __name__ == "__main__":
     main()
